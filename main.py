@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Jul 25 12:30:19 2021
-
-@author: baron015
-"""
 
 import os
 import argparse
@@ -19,62 +13,93 @@ os.chdir(working_directory)
 
 import utils as functions
 import train as train
+import evaluate as evaluate
 
 import warnings
 warnings.filterwarnings('ignore')
 
 
+
 def main():
 
+    years = [2011]
+
+    cnn_run = True
+    if cnn_run:
+        import dataset
+        folders_data, folders_labels = dataset.get_data_folders(years)
+
+        dataset_full = dataset.merge_datasets(data_folders=folders_data, label_folders=folders_labels)
+
+        train_data, test_data = dataset.split_dataset(dataset_full, test_size=0.1)
+        from torch.utils.data import DataLoader
+        loader = DataLoader(test_data, batch_size=test_data.__len__(), shuffle=True)
+        for batch in loader:
+            None
+
+        #### subsetting for testing purposes
+        indexes_dataset = np.arange(0, train_data.__len__())
+        from sklearn.model_selection import train_test_split
+        _, indexes_train = train_test_split(indexes_dataset, test_size=0.1, random_state=42)
+        train_data = torch.utils.data.Subset(train_data, indexes_train)
+
+        import model.CNN as CNN
+        model = CNN.CnnSemanticSegmentation()
+
+        print("starting the training")
+
+        log_message_model = "normal training for the CNN on partial dataset"
+        model = train.train(model, train_data, number_epochs=20, description_model=log_message_model)
+
+        ## validate
+        folder_cnn_save = "runs/CnnModel/"
+        evaluate.validation(model, test_data, description_model=log_message_model, folder_results=folder_cnn_save)
 
 
-    years = [2019]
 
-    print("""
-    
-    Training the CNN    
+    graph_analysis = True
+    if graph_analysis:
+        description_model = "testing graph analysis pipeline"
 
-    """)
+        import dataset_graphs
+        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years)
 
-    import dataset
-    folders_data, folders_labels = dataset.get_data_folders(years)
+        full_dataset = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
 
-    dataset_full = dataset.merge_datasets(data_folders=folders_data, label_folders=folders_labels)
+        #### subsetting for testing purposes
+        indexes_dataset = np.arange(0, full_dataset.__len__())
+        from sklearn.model_selection import train_test_split
+        _, indexes_train = train_test_split(indexes_dataset, test_size=0.1, random_state=42)
+        train_data = torch.utils.data.Subset(full_dataset, indexes_train)
 
-    train_data, test_data = dataset.split_dataset(dataset_full, test_size=0.1)
+        import model.GCN as Gcn
+        simple_GCN = Gcn.GNNStack(input_dim=13, hidden_dim=128, output_dim=1)
 
-    #### subsetting for testing purposes
-    indexes_dataset = np.arange(0, train_data.__len__())
-    from sklearn.model_selection import train_test_split
-    _, indexes_train = train_test_split(indexes_dataset, test_size=0.1, random_state=42)
-    train_data = torch.utils.data.Subset(train_data, indexes_train)
+        description_model = "testing gnn"
+        graph_model = train.train_graph(simple_GCN, train_data, 2, description_model=description_model)
 
-    import model.CNN as CNN
-    model = CNN.CnnSemanticSegmentation()
+        import winsound
+        duration = 1000  # milliseconds
+        freq = 440  # Hz
+        winsound.Beep(freq, duration)
 
-    import train
-    print("starting the training")
+    base_line_analysis = False
+    if base_line_analysis:
+        # training a RF model
+        graph_files = dataset_graphs.graph_files
+        x_nodes, y_nodes = functions.graph_files_to_node_data(graph_files)
+        evaluate.rf_accuracy_estimation(x_nodes, y_nodes)
 
-    log_message_model = "normal training for the CNN on partial dataset"
-    train.train(model, train_data, number_epochs=4, description_model=log_message_model)
 
 
-        
+
 if __name__ == "__main__":
 
     main()
 
 
 
-
-    ### graph data / model
-    #folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
-    #folder_graphs = os.path.join(folder_greenhouse_dataset, "graphs")
-    #folder_semantic_maps = os.path.join(folder_greenhouse_dataset, "semantic_maps_graphs")
-    #folder_labels = os.path.join(folder_greenhouse_dataset, "ground_truth_rasters")
-
-    ### graph model
-    #dataset_graphs = dataset_graph.GraphDatasetSemanticSegmentation(folder_graphs, folder_labels, folder_semantic_maps)
+    """  
 
     ### training a mlp without grap data (OO),
     #graph_files = dataset_graphs.graph_files
@@ -101,6 +126,10 @@ if __name__ == "__main__":
     # graph_files = dataset_graphs.graph_files
     # x_nodes, y_nodes = functions.graph_files_to_node_data(graph_files)
     # evaluate.rf_accuracy_estimation(x_nodes, y_nodes)
+    
+    """
+
+
 
 
 
