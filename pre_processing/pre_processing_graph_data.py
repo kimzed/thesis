@@ -36,57 +36,59 @@ def main():
           
           """)
 
-    year = 2019
+    years = [2014, 2011]
 
-    folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
-    folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
+    for year in years:
+
+        folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+        folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
+
+        pre_processing_graphs(folder_nairobi_dataset)
+        pre_processing_graphs(folder_greenhouse_dataset)
+
+
+def pre_processing_graphs(folder_data):
 
     folder_gt = "ground_truth_rasters/"
     folder_landsat = "landsat_rasters/"
 
+    files_gt = functions.get_files(folder_data + folder_gt)
+    files_landsat = functions.get_files(folder_data + folder_landsat)
+
     folder_semantic_maps = "semantic_maps_graphs/"
     folder_graphs = "graphs/"
 
-    files_gt = functions.get_files(folder_greenhouse_dataset + folder_gt)
-    files_landsat = functions.get_files(folder_greenhouse_dataset + folder_landsat)
+    print("""
 
+              Computing the graph data
 
+              """)
 
+    graphs, segmentation_maps = semantic_segmentation_dataset_to_graph_dataset(files_landsat,
+                                                                               files_gt)
 
     print("""
-          
-          Computing the graph data
-          
-          """)
 
-    graphs, segmentation_maps = semantic_segmentation_dataset_to_graph_dataset(files_landsat, files_gt)
+            saving graphs and segmentation maps
 
-    print("""
-    
-        saving graphs and segmentation maps
-        
-        """)
+            """)
 
     len_dataset = len(files_landsat)
 
-    path_semantic_map = folder_greenhouse_dataset + folder_semantic_maps
-    path_graphs = folder_greenhouse_dataset + folder_graphs
+    path_semantic_map = folder_data + folder_semantic_maps
+    path_graphs = folder_data + folder_graphs
 
     functions.create_directory(path_semantic_map)
     functions.create_directory(path_graphs)
 
     for index_sample in range(len_dataset):
-
         file_name = get_file_from_path(files_landsat[index_sample])
         number_file = get_numbers_from_string(file_name)
         segmentation_map = segmentation_maps[index_sample]
         graph = graphs[index_sample]
 
-
-
         filename_graph = f"{path_graphs}graph{number_file}"
         filename_semantic_map = f"{path_semantic_map}semantic_map{number_file}"
-
 
         torch.save(graph, filename_graph)
         np.save(filename_semantic_map, segmentation_map)
