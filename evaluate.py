@@ -140,32 +140,10 @@ def predict_on_graph_dataset(model: nn.Module, dataset: torch.utils.data.dataset
 
     return prediction_total, y_data_total, binary_prediction_total
 
-def rf_accuracy_estimation_obia(graphs_train: list[torch_geometric.data.data.Data],
-                                graphs_test: list[torch_geometric.data.data.Data],
-                                description_model: str, folder_results: str, perform_cross_validation=False):
-    x_train, y_train = functions.graphs_to_node_data(graphs_train)
-    x_test, y_test = functions.graphs_to_node_data(graphs_train)
 
-    classifier = RandomForestClassifier(max_depth=2, random_state=0)
-    classifier.fit(x_train, y_train)
-    prediction_label = classifier.predict(x_test)
-
-    accuracy_metrics_report(y_test, prediction_label)
-
-    report = accuracy_metrics_report(y_test, prediction_label)
-
-    if perform_cross_validation:
-        cross_validation_report(classifier, x_test, y_test)
-
-    file_results = f"{folder_results}results_model_{current_time}.txt"
-    functions.write_text_file(path=file_results, text=report)
-
-
-def rf_accuracy_estimation(train_dataset: torch.utils.data.dataset.Subset,
-                           test_dataset: torch.utils.data.dataset.Subset, description_model: str, folder_results: str,
+def rf_accuracy_estimation(x_train: np.array, y_train: np.array, x_test: np.array, y_test: np.array,
+                           description_model: str, folder_results: str,
                            perform_cross_validation=False):
-    x_train, y_train = dataset.get_x_and_y_from_subset_dataset(train_dataset)
-    x_test, y_test = dataset.get_x_and_y_from_subset_dataset(test_dataset)
     classifier = RandomForestClassifier(max_depth=3, random_state=0, n_estimators=20)
     classifier.fit(x_train, y_train)
     prediction_label = classifier.predict(x_test)
@@ -179,6 +157,8 @@ def rf_accuracy_estimation(train_dataset: torch.utils.data.dataset.Subset,
 
     file_results = f"{folder_results}results_model_{current_time}.txt"
     functions.write_text_file(path=file_results, text=report)
+
+    return report
 
 
 def cross_validation_report(model, x_test: np.array, y_test: np.array):
@@ -196,7 +176,7 @@ def accuracy_metrics_report(y_labels: np.array, y_prediction: np.array):
     conf_mat = confusion_matrix(y_labels, y_prediction)
     class_report = classification_report(y_labels, y_prediction)
 
-    report += f"\n\nConfustion matrix \n\n TN - FN \n\n FP - TP \n\n {conf_mat}"
+    report += f"\n\nConfusion matrix \n\n TN - FN \n\n FP - TP \n\n {conf_mat}"
     report += f"\n\n {class_report}"
 
     return report

@@ -30,12 +30,12 @@ import dataset
 import dataset_graphs
 
 DO_GRAPH_ANALYSIS = False
-DO_CNN_RUN = True
+DO_CNN_RUN = False
 DO_RF_OBIA = False
-DO_RF = False
+DO_RF = True
 
 # 2019, 2014, 2011
-years = [2019, 2014, 2011]
+years = [2019]
 
 
 def main():
@@ -76,7 +76,7 @@ def main():
         model = gcn.GnnStack(input_dim=13, hidden_dim=128, output_dim=1)
         model.learning_rate = 0.01
 
-        log_message_model = "Trying a normal GCN on normal data and checking the results."
+        log_message_model = "Testing on a single year to see if we can predict positives."
         folder_results_path = f"runs/Gnn/normal_gcn_{current_time}/"
         os.mkdir(folder_results_path)
 
@@ -97,8 +97,10 @@ def main():
 
         graph_files_test = dataset_graphs.get_graphs_from_subset_dataset(test_dataset)
         graph_files_train = dataset_graphs.get_graphs_from_subset_dataset(train_dataset)
-        evaluate.rf_accuracy_estimation_obia(graph_files_train, graph_files_test, description_model=log_message_model,
-                                             folder_results=folder_results_path)
+        x_train, y_train = functions.graphs_to_node_data(graph_files_train)
+        x_test, y_test = functions.graphs_to_node_data(graph_files_test)
+        evaluate.rf_accuracy_estimation(x_train, y_train, x_test, y_test, description_model=log_message_model,
+                                        folder_results=folder_results_path)
 
     if DO_RF:
         log_message_model = "testing folder saves"
@@ -109,7 +111,9 @@ def main():
         datasets = dataset.get_datasets(data_folders=folders_data, label_folders=folders_labels)
         dataset_full = ConcatDataset(datasets)
         train_dataset, test_dataset = dataset.split_dataset_geographically(dataset_full, x_limit=36.523466)
-        evaluate.rf_accuracy_estimation(train_dataset, test_dataset, log_message_model, folder_results_path)
+        x_train, y_train = dataset.get_x_and_y_from_subset_dataset(train_dataset)
+        x_test, y_test = dataset.get_x_and_y_from_subset_dataset(test_dataset)
+        evaluate.rf_accuracy_estimation(x_train, y_train, x_test, y_test, log_message_model, folder_results_path)
 
 
 if __name__ == "__main__":
