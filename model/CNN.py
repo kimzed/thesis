@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch
 import torch.optim as optim
 
-
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class CnnSemanticSegmentation(nn.Module):
   
@@ -18,8 +18,6 @@ class CnnSemanticSegmentation(nn.Module):
     super(CnnSemanticSegmentation, self).__init__()
     
     self = self.float()
-    if torch.cuda.is_available():
-        self.cuda()
     self.learning_rate = 0.02
 
     self.number_hidden_channels = 32
@@ -46,7 +44,7 @@ class CnnSemanticSegmentation(nn.Module):
     
   def initialize_layer_weights(self, layer):
     torch.nn.init.xavier_uniform(layer.weight)
-    
+
   def forward(self, input):
     x1 = self.Convolution1(input)
     x2 = self.Convolution2(x1)

@@ -4,8 +4,7 @@ Created on Thu Aug 26 19:01:20 2021
 
 @author: baron015
 """
-
-
+import torch_geometric
 from sklearn.model_selection import train_test_split
 from sklearn import svm
 from sklearn.model_selection import cross_val_score
@@ -13,105 +12,176 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+import torch.nn as nn
+import torch
+from torch.utils.data import DataLoader
+from sklearn import metrics
+import datetime
 
 # importing useful functions
-import utils as fun
+import dataset
+import utils as functions
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+validation = True
+
+now = datetime.datetime.now()
+current_time = now.strftime("%Y_%m_%d_%H_%M")
 
 
-def nn_accuracy_estimation(model, dataset, threshold=0.5):
-    """
-    Function to generate the change raster from the model
-    args: the ground truth rasters as a dictionary (per year), with dem, rad and
-          labels ; the model and its arguments (parameters of the model)
-    outputs the codes, the binary change maps (gt) and the classes
-          
-    """
-    
-    # loading lists to store the results
-    y = []
-    y_hat = []
-    
-    model.eval()
-    
-    ## generating predictions
-    for sample in dataset:
-        
-        pred = model(fun.torch_raster(sample[0][None,:,:,:]))
-    
-        y_hat.append(fun.numpy_raster(pred))
-        
-        y.append(sample[1])
-        
-    # putting into a single matrix
-    y_hat = np.stack(y_hat, axis=0).flatten()
-    y = np.stack(y, axis=0).flatten()
-    # applying threshold on prediction
-    y_hat = np.where(y_hat > threshold, 1, 0)
-    
-    # printing  results
-    conf_mat = confusion_matrix(y, y_hat)
-    class_report = classification_report(y, y_hat)
-    
-    
-    return conf_mat, class_report
+def validation(model: nn.Module, dataset: torch.utils.data.dataset, description_model: str,
+               folder_results: str) -> None:
+    model = model.eval()
+
+    prediction, y_data, binary_prediction = predict_on_dataset(model, dataset)
+
+    auc = metrics.roc_auc_score(y_data, prediction)
+    report = accuracy_metrics_report(y_data, binary_prediction)
+
+    learning_rate = model.learning_rate
+    results_to_save = f" learning rate= {learning_rate}\n\n" + description_model + f"\n\n auc= {auc}"
+    results_to_save += f"\n\n {report}"
+
+    file_results = f"{folder_results}results_model_{current_time}.txt"
+
+    functions.write_text_file(path=file_results, text=results_to_save)
 
 
-def svm_accuracy_estimation(train, test, cv=False):
-    """
-    performance on a svm
-    This function builds the datasets up
-    """
-    
-    ## creating train and test
-    nb_bands, dims = train[0][0].shape[0], train[0][0].shape[1]
-    x_train = np.concatenate([samp[0].reshape((nb_bands, dims**2)).T for samp in train])
-    x_test = np.concatenate([samp[0].reshape((nb_bands, dims**2)).T for samp in test])
-    y_test = np.concatenate([samp[1] for samp in test])
-    y_train =  np.concatenate([samp[1] for samp in train])
-    
+def predict_on_dataset(model: nn.Module, dataset: torch.utils.data.dataset):
+    loader = DataLoader(dataset, batch_size=2000, shuffle=True)
 
-    # loading the model
-    svclassifier = svm.SVC(class_weight="balanced")
-    
-    # training the model
-    svclassifier.fit(x_train, y_train)
-    
-    # predicting the labels
-    pred_label = svclassifier.predict(x_test)
-    
-    # printing  results
-    conf_mat = confusion_matrix(y_test, pred_label)
-    class_report = classification_report(y_test, pred_label)
-    
-    # performing a cross validation (optional)
-    if cv:
-        # prepare the cross-validation procedure
-        cv = KFold(n_splits=10, random_state=1, shuffle=True)
-        
-        # performing a k fold validation
-        scores_cv = cross_val_score(svclassifier, x_test, y_test,
-                                cv=cv, scoring='f1_macro')
-    else:
-        scores_cv=None
-    
-    return conf_mat, class_report, scores_cv
+    prediction_total = []
+    y_data_total = []
+    binary_prediction_total = []
+    for data in loader:
+
+        x_data, y_data, coordinates_samples = data
+        y_data = y_data.float()
+
+        if device.type == "cuda":
+            x_data = x_data.cuda().float()
+            y_data = y_data.cuda().float()
+        elif device.type == "cpu":
+            x_data = x_data.float()
+            y_data = y_data.float()
+
+        prediction = model(x_data)
+        prediction = nn.Sigmoid()(prediction)
+
+        prediction = torch.flatten(prediction)
+        y_data = torch.flatten(y_data)
+
+        prediction = functions.numpy_raster(prediction)
+        y_data = functions.numpy_raster(y_data)
+
+        binary_prediction = functions.convert_to_binary(prediction, 0.5)
+
+        prediction_total.append(prediction)
+        y_data_total.append(y_data)
+        binary_prediction_total.append(binary_prediction)
+
+    prediction_total = np.concatenate(prediction_total)
+    y_data_total = np.concatenate(y_data_total)
+    binary_prediction_total = np.concatenate(binary_prediction_total)
+
+    return prediction_total, y_data_total, binary_prediction_total
 
 
-def rf_accuracy_estimation(data: np.array, labels: np.array, perform_cross_validation=False):
+def validation_graph(model: nn.Module, dataset: torch.utils.data.dataset, description_model: str,
+                     folder_results: str) -> None:
+    model = model.eval()
 
-    x_train, x_test, y_train, y_test = train_test_split(data, labels, test_size=0.3)
+    from torch_geometric.data import DataLoader
+    loader = DataLoader(dataset, batch_size=2000, shuffle=True)
+
+    image_prediction, mask, binary_prediction = predict_on_graph_dataset(model, loader)
+
+    auc = metrics.roc_auc_score(mask, image_prediction)
+    report = accuracy_metrics_report(mask, binary_prediction)
+
+    learning_rate = model.learning_rate
+    results_to_save = f" learning rate= {learning_rate}\n\n" + description_model + f"\n\n auc= {auc}"
+    results_to_save += f"\n\n {report}"
+
+    file_results = f"{folder_results}results_model_{current_time}.txt"
+    functions.write_text_file(path=file_results, text=results_to_save)
+
+
+def predict_on_graph_dataset(model: nn.Module, dataset: torch.utils.data.dataset):
+    from torch_geometric.data import DataLoader
+    loader = DataLoader(dataset, batch_size=2000, shuffle=True)
+
+    prediction_total = []
+    y_data_total = []
+    binary_prediction_total = []
+    for data in loader:
+        graph, mask, segmentation_map, coordinate = data
+        graph = graph.to(device)
+
+        segmentation_map = segmentation_map.flatten()
+
+        with torch.no_grad():
+            prediction = model.predict(graph)
+        prediction = prediction.flatten()
+        image_prediction = functions.graph_labels_to_image(functions.numpy_raster(prediction),
+                                                           functions.numpy_raster(segmentation_map))
+        image_prediction = image_prediction.flatten()
+        mask = mask.flatten()
+
+        binary_prediction = functions.convert_to_binary(image_prediction, 0.5)
+
+        y_data_total.append(mask)
+        prediction_total.append(image_prediction)
+        binary_prediction_total.append(binary_prediction)
+
+    prediction_total = np.concatenate(prediction_total)
+    y_data_total = np.concatenate(y_data_total)
+    binary_prediction_total = np.concatenate(binary_prediction_total)
+
+    return prediction_total, y_data_total, binary_prediction_total
+
+def rf_accuracy_estimation_obia(graphs_train: list[torch_geometric.data.data.Data],
+                                graphs_test: list[torch_geometric.data.data.Data],
+                                description_model: str, folder_results: str, perform_cross_validation=False):
+    x_train, y_train = functions.graphs_to_node_data(graphs_train)
+    x_test, y_test = functions.graphs_to_node_data(graphs_train)
+
     classifier = RandomForestClassifier(max_depth=2, random_state=0)
     classifier.fit(x_train, y_train)
     prediction_label = classifier.predict(x_test)
 
     accuracy_metrics_report(y_test, prediction_label)
 
+    report = accuracy_metrics_report(y_test, prediction_label)
+
     if perform_cross_validation:
         cross_validation_report(classifier, x_test, y_test)
 
+    file_results = f"{folder_results}results_model_{current_time}.txt"
+    functions.write_text_file(path=file_results, text=report)
+
+
+def rf_accuracy_estimation(train_dataset: torch.utils.data.dataset.Subset,
+                           test_dataset: torch.utils.data.dataset.Subset, description_model: str, folder_results: str,
+                           perform_cross_validation=False):
+    x_train, y_train = dataset.get_x_and_y_from_subset_dataset(train_dataset)
+    x_test, y_test = dataset.get_x_and_y_from_subset_dataset(test_dataset)
+    classifier = RandomForestClassifier(max_depth=3, random_state=0, n_estimators=20)
+    classifier.fit(x_train, y_train)
+    prediction_label = classifier.predict(x_test)
+
+    accuracy_metrics_report(y_test, prediction_label)
+
+    report = accuracy_metrics_report(y_test, prediction_label)
+
+    if perform_cross_validation:
+        cross_validation_report(classifier, x_test, y_test)
+
+    file_results = f"{folder_results}results_model_{current_time}.txt"
+    functions.write_text_file(path=file_results, text=report)
+
 
 def cross_validation_report(model, x_test: np.array, y_test: np.array):
-
     cross_validation_parameters = KFold(n_splits=10, random_state=1, shuffle=True)
     scores_cv = cross_val_score(model, x_test, y_test,
                                 cv=cross_validation_parameters, scoring='f1_macro')
@@ -121,11 +191,12 @@ def cross_validation_report(model, x_test: np.array, y_test: np.array):
 
 
 def accuracy_metrics_report(y_labels: np.array, y_prediction: np.array):
+    report = ""
 
     conf_mat = confusion_matrix(y_labels, y_prediction)
     class_report = classification_report(y_labels, y_prediction)
 
-    print("confusion matrix")
-    print(conf_mat)
-    print("\nclassification report")
-    print(class_report)
+    report += f"\n\nConfustion matrix \n\n TN - FN \n\n FP - TP \n\n {conf_mat}"
+    report += f"\n\n {class_report}"
+
+    return report

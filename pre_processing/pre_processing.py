@@ -19,11 +19,11 @@ import osmnx as ox
 # google earth library
 import ee
 
-working_directory = "//WURNET.NL/Homes/baron015/My Documents/thesis"
+working_directory = "C:/Users/57834/Documents/thesis/"
 os.chdir(working_directory)
 
-import python.utils as functions
-import python.pre_processing.utils_preprocessing as function_pre_processing
+import utils as functions
+import pre_processing.utils_preprocessing as function_pre_processing
 
 year = 2011
 next_year = year + 1
@@ -53,7 +53,7 @@ def main():
 
     area_kenya_points = (min_points_x, min_points_y, max_points_x, max_points_y)
     size_tile_degree = 0.01
-    tiles_grid_kenya = function_pre_processing.generates_list_tiles_from_square_polygon(area_kenya_points,
+    tiles_grid_kenya = function_pre_processing.generates_list_tiles_from_square_points(area_kenya_points,
                                                                           size_tile_degree)
 
     grid_country = gpd.GeoDataFrame({'geometry':tiles_grid_kenya})

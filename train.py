@@ -5,15 +5,13 @@ Created on Sun Jul 25 12:08:25 2021
 @author: baron015
 """
 
-
-
 import torch
 import torchnet as tnt
 
 from torch_geometric.data import DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
-
+from pathlib import Path
 
 # importing our functions
 import utils as fun
@@ -27,31 +25,40 @@ sigmoid_function = torch.nn.Sigmoid()
 save_models = True
 
 from datetime import datetime
+
 now = datetime.now()
-current_time = now.strftime("%Y_%m_%d_%H:%M")
+current_time = now.strftime("%Y_%m_%d_%H_%M")
+
+folder_cnn_save = "runs/CnnModel/"
+folder_evaluation_models = f"{folder_cnn_save}evaluation_models/"
 
 
-def train_graph(model, dataset, number_epochs):
+# to check memory allocation: torch.cuda.memory_summary(device=None, abbreviated=False)
 
-    # TODO dont use dataloader for train test individual graphs to test real accuracy (with segmentation map)
-    test_data, train_data = train_test_split(dataset, test_size=0.8)
-    loader = torch.utils.data.DataLoader(train_data, batch_size=2, shuffle=True)
-    test_loader = DataLoader(test_data, batch_size=2, shuffle=True)
 
+def train_graph(model, dataset, number_epochs, description_model: str, folder_result: str):
+    train_data, test_data= train_test_split(dataset, test_size=0.2)
+
+    loader = DataLoader(train_data, batch_size=32, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=1, shuffle=True)
+
+    model.train()
     model = model.to(device)
-    opt = optim.Adam(model.parameters(), lr=0.01)
+    opt = optim.Adam(model.parameters(), lr=model.learning_rate)
 
-    for epoch in range(number_epochs):
+    metrics = {"train_loss": [], "validation_accuracy": [], "validation_loss": []}
+
+    for i_epoch in range(number_epochs):
 
         loss_average = tnt.meter.AverageValueMeter()
         model.train()
 
         for batch in loader:
+            graph, mask, segmentation_map, coordinate = batch
 
-
-            batch = batch.to(device)
-            label = batch.y.float()
-            label = label[:,None]
+            batch = graph.to(device)
+            label = graph.y.float()
+            label = label[:, None]
 
             # ============forward===========
             prediction = model(batch)
@@ -66,38 +73,80 @@ def train_graph(model, dataset, number_epochs):
             loss.backward(retain_graph=True)
             opt.step()
 
-        if epoch % 10 == 0:
+        is_validation_epoch = i_epoch % 2 == 0
 
-            test_acc = test_graph(test_loader, model)
-            print("Epoch {}. Loss: {:.4f}. Test accuracy: {:.4f}".format(epoch, loss_average.mean, test_acc))
+        if is_validation_epoch:
+            validation_accuracy, loss_validation = test_graph(test_loader, model)
+            print(
+                "Epoch {}. Loss: {:.4f}. Test accuracy: {:.4f}".format(i_epoch, loss_average.mean, validation_accuracy))
+            metrics["train_loss"].append(loss_average.mean)
+            metrics["validation_accuracy"].append(validation_accuracy)
+            metrics["validation_loss"].append(loss_validation)
+
+        if save_models:
+            folder_evaluation_models = "runs/Gnn/validation/"
+            file_model = f"{folder_evaluation_models}save_model_epoch_{i_epoch}.pt"
+            fun.save_model(model, file_model)
+
+    # save best model
+    if save_models:
+        fun.saving_best_model(model, folder_evaluation_models, metrics, description_model, folder_result)
+
+        fun.delete_files_from_folder(folder_evaluation_models)
+
+    file_plot = f"{folder_result}plot_model_{current_time}.png"
+    fun.visualisation_losses(metrics, file_plot)
 
     return model
 
 
-def test_graph(loader, model):
+def test_graph(loader, model) -> tuple:
     model.eval()
 
-    correct = 0
+    loss_average = tnt.meter.AverageValueMeter()
+
+    total_accuracy = 0
+
+    number_samples = len(loader)
+
     for data in loader:
-        data = data.to(device)
+
+        graph, mask, segmentation_map, coordinate = data
+        graph = graph.to(device)
+
+        segmentation_map = segmentation_map.flatten()
 
         with torch.no_grad():
-            pred = model.predict(data)
-            label = data.y
+            prediction = model.predict(graph)
+            if device.type == "cuda":
+                label = graph.y.float().cuda()
+                label = label[:, None]
+            else:
+                label = graph.y.float()
+                label = label[:, None]
+        loss = criterion(prediction, label)
 
-        count_correct = accuracy_score(label, pred, normalize=False)
-        correct += count_correct
+        loss_average.add(loss.item())
 
-    total_number_nodes = fun.get_number_nodes(loader.dataset)
+        prediction = prediction.flatten()
+        image_prediction = fun.graph_labels_to_image(fun.numpy_raster(prediction), fun.numpy_raster(segmentation_map))
+        image_prediction = image_prediction.flatten()
+        mask = mask.flatten()
+        accuracy = accuracy_score(image_prediction, mask, normalize=True)
+        total_accuracy += accuracy
 
-    total_accuracy = correct / total_number_nodes
+    # total_number_nodes = fun.get_number_nodes(loader.dataset)
 
-    return total_accuracy
+    total_accuracy = total_accuracy / number_samples
+
+    average_loss = loss_average.mean
+
+    return total_accuracy, average_loss
 
 
 def train_one_epoch(model, data_loader, validation=False):
-
     model.train()
+    model.to(device)
 
     if validation:
         model.eval()
@@ -107,10 +156,8 @@ def train_one_epoch(model, data_loader, validation=False):
 
     for i_batch, data in enumerate(data_loader):
 
-        x_data, y_data = data
-        y_data = y_data.float()
+        x_data, y_data, coordinates_samples = data
         positives_in_y_data = 1 in y_data
-
 
         if device.type == "cuda":
             x_data = x_data.cuda().float()
@@ -133,12 +180,11 @@ def train_one_epoch(model, data_loader, validation=False):
             indexes_negatives = y_data == 0
             loss_positives = criterion(probability_prediction[indexes_positives], y_data[indexes_positives])
             loss_negatives = criterion(probability_prediction[indexes_negatives], y_data[indexes_negatives])
-            loss = loss_positives*10 + loss_negatives*0.1
+            loss = loss_positives + loss_negatives
         else:
             loss = criterion(probability_prediction, y_data)
 
         loss_average.add(loss.item())
-
 
         accuracy_metric += fun.get_accuracy(prediction_flattened, y_data, validation)
 
@@ -150,28 +196,28 @@ def train_one_epoch(model, data_loader, validation=False):
         if not validation:
             model.optimizer.step()
 
+        torch.cuda.empty_cache()
+
     number_batches = i_batch + 1
     accuracy_metric_averaged = accuracy_metric / number_batches
 
     return loss_average.value()[0], accuracy_metric_averaged
 
 
-def train(model, dataset, number_epochs:int, description_model: str):
-
+def train(model, dataset, number_epochs: int, description_model: str, results_folder: Path):
     import dataset as dataset_functions
     from torch.utils.data import DataLoader
-    number_samples = dataset.__len__()
+
     train_data, validation_data = dataset_functions.split_dataset(dataset, test_size=0.8)
-    train_loader = DataLoader(train_data, batch_size=32, shuffle=True)
-    validation_loader = DataLoader(validation_data, batch_size=number_samples, shuffle=True)
+    train_loader = DataLoader(train_data, batch_size=32
+                              , shuffle=True)
+    validation_loader = DataLoader(validation_data, batch_size=32, shuffle=True)
 
     fun.show_characteristics_model(model)
 
     losses = {"train_loss": [], "train_acuracy": [], "validation_loss": [], "validation_accuracy": []}
 
-
     for i_epoch in range(number_epochs):
-
 
         loss_train, accuracy = train_one_epoch(model, train_loader)
 
@@ -187,34 +233,20 @@ def train(model, dataset, number_epochs:int, description_model: str):
 
         fun.display_training_metrics(i_epoch, loss_train, accuracy)
 
-        folder_cnn_save = "runs/CnnModel/"
-
         if save_models:
-            path_model = f"{folder_cnn_save}save_model_epoch_{i_epoch}.pt"
-            fun.save_model(model, path_model, description_model)
-
+            file_model = f"{folder_evaluation_models}save_model_epoch_{i_epoch}.pt"
+            fun.save_model(model, file_model)
 
     if save_models:
-        print("saving best model")
-        best_accuracy = max(losses["validation_accuracy"])
-        i_best_model = losses["validation_accuracy"].index(best_accuracy)
-
-
-        path_best_model = f"{folder_evaluation_models}save_model_epoch_{i_best_model}.pt"
-        path_log_message_best_model = f"{path_best_model}.txt"
-        description_model = fun.read_txt_file_into_string(path_log_message_best_model)
-
-        model = fun.load_weights_to_model(model, path_best_model)
-        path_best_model = f"{folder_cnn_save}/cnn_{current_time}.pt"
-        fun.save_model(model, path_best_model, description_model)
+        print("Saving best model")
+        fun.saving_best_model(model, folder_evaluation_models, losses, description_model, results_folder)
 
         # cleaning the evaluation models saved every epoch
         fun.delete_files_from_folder(folder_evaluation_models)
 
-
-    fun.visualisation_losses(losses)
+    file_plot = f"{results_folder}plot_model_{current_time}.png"
+    fun.visualisation_losses(losses, file_plot)
 
     model.eval()
 
     return model
-

@@ -1,103 +1,119 @@
-
 import os
 import argparse
 import torch
 
 import numpy as np
+from pathlib import Path
 
 # for manual visualisation
-#from rasterio.plot import show
+# from rasterio.plot import show
+from dataset import GreenhouseDataset
 
-working_directory = "//WURNET.NL/Homes/baron015/My Documents/thesis"
+working_directory = "C:/Users/57834/Documents/thesis"
 os.chdir(working_directory)
 
 import utils as functions
 import train as train
 import evaluate as evaluate
+from torch.utils.data import ConcatDataset
 
 import warnings
+
 warnings.filterwarnings('ignore')
 
+from datetime import datetime
+
+now = datetime.now()
+current_time = now.strftime("%Y_%m_%d_%H_%M")
+
+import dataset
+import dataset_graphs
+
+DO_GRAPH_ANALYSIS = False
+DO_CNN_RUN = True
+DO_RF_OBIA = False
+DO_RF = False
+
+# 2019, 2014, 2011
+years = [2019, 2014, 2011]
 
 
 def main():
-
-    years = [2011]
-
-    cnn_run = True
-    if cnn_run:
-        import dataset
+    if DO_CNN_RUN:
         folders_data, folders_labels = dataset.get_data_folders(years)
 
-        dataset_full = dataset.merge_datasets(data_folders=folders_data, label_folders=folders_labels)
+        datasets = dataset.get_datasets(data_folders=folders_data, label_folders=folders_labels)
 
-        train_data, test_data = dataset.split_dataset(dataset_full, test_size=0.1)
-        from torch.utils.data import DataLoader
-        loader = DataLoader(test_data, batch_size=test_data.__len__(), shuffle=True)
-        for batch in loader:
-            None
+        dataset_full = ConcatDataset(datasets)
 
-        #### subsetting for testing purposes
-        indexes_dataset = np.arange(0, train_data.__len__())
-        from sklearn.model_selection import train_test_split
-        _, indexes_train = train_test_split(indexes_dataset, test_size=0.1, random_state=42)
-        train_data = torch.utils.data.Subset(train_data, indexes_train)
+        # train_data, test_data = dataset.split_dataset(dataset_full, test_size=0.1)
+        train_dataset, test_dataset = dataset.split_dataset_geographically(dataset_full, x_limit=36.523466)
 
-        import model.CNN as CNN
+        import model.cnn as CNN
         model = CNN.CnnSemanticSegmentation()
+        model.learning_rate = 0.02
 
         print("starting the training")
 
-        log_message_model = "normal training for the CNN on partial dataset"
-        model = train.train(model, train_data, number_epochs=20, description_model=log_message_model)
+        log_message_model = "trying to get some good results and having a baseline"
+        folder_results_path = f"runs/CnnModel/{current_time}/"
+        os.mkdir(folder_results_path)
 
-        ## validate
+        model = train.train(model, train_dataset, number_epochs=30, description_model=log_message_model,
+                            results_folder=folder_results_path)
+
         folder_cnn_save = "runs/CnnModel/"
-        evaluate.validation(model, test_data, description_model=log_message_model, folder_results=folder_cnn_save)
+        evaluate.validation(model, test_dataset, description_model=log_message_model,
+                            folder_results=folder_results_path)
 
-
-
-    graph_analysis = True
-    if graph_analysis:
-        description_model = "testing graph analysis pipeline"
-
-        import dataset_graphs
+    if DO_GRAPH_ANALYSIS:
         folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years)
 
-        full_dataset = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
+        dataset_full = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
+        train_dataset, test_dataset = dataset_graphs.split_dataset_geographically(dataset_full, x_limit=36.523466)
 
-        #### subsetting for testing purposes
-        indexes_dataset = np.arange(0, full_dataset.__len__())
-        from sklearn.model_selection import train_test_split
-        _, indexes_train = train_test_split(indexes_dataset, test_size=0.1, random_state=42)
-        train_data = torch.utils.data.Subset(full_dataset, indexes_train)
+        import model.gcn as gcn
+        model = gcn.GnnStack(input_dim=13, hidden_dim=128, output_dim=1)
+        model.learning_rate = 0.01
 
-        import model.GCN as Gcn
-        simple_GCN = Gcn.GNNStack(input_dim=13, hidden_dim=128, output_dim=1)
+        log_message_model = "Trying a normal GCN on normal data and checking the results."
+        folder_results_path = f"runs/Gnn/normal_gcn_{current_time}/"
+        os.mkdir(folder_results_path)
 
-        description_model = "testing gnn"
-        graph_model = train.train_graph(simple_GCN, train_data, 2, description_model=description_model)
+        graph_model = train.train_graph(model, train_dataset, number_epochs=40, description_model=log_message_model,
+                                        folder_result=folder_results_path)
 
-        import winsound
-        duration = 1000  # milliseconds
-        freq = 440  # Hz
-        winsound.Beep(freq, duration)
+        evaluate.validation_graph(graph_model, test_dataset, description_model=log_message_model,
+                                  folder_results=folder_results_path)
 
-    base_line_analysis = False
-    if base_line_analysis:
-        # training a RF model
-        graph_files = dataset_graphs.graph_files
-        x_nodes, y_nodes = functions.graph_files_to_node_data(graph_files)
-        evaluate.rf_accuracy_estimation(x_nodes, y_nodes)
+    if DO_RF_OBIA:
+        log_message_model = "testing folder saves"
+        folder_results_path = f"runs/obia_baseline/{current_time}/"
+        os.mkdir(folder_results_path)
 
+        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years)
+        dataset_full = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
+        train_dataset, test_dataset = dataset_graphs.split_dataset_geographically(dataset_full, x_limit=36.523466)
 
+        graph_files_test = dataset_graphs.get_graphs_from_subset_dataset(test_dataset)
+        graph_files_train = dataset_graphs.get_graphs_from_subset_dataset(train_dataset)
+        evaluate.rf_accuracy_estimation_obia(graph_files_train, graph_files_test, description_model=log_message_model,
+                                             folder_results=folder_results_path)
+
+    if DO_RF:
+        log_message_model = "testing folder saves"
+        folder_results_path = f"runs/rf_baseline/{current_time}/"
+        os.mkdir(folder_results_path)
+
+        folders_data, folders_labels = dataset.get_data_folders(years)
+        datasets = dataset.get_datasets(data_folders=folders_data, label_folders=folders_labels)
+        dataset_full = ConcatDataset(datasets)
+        train_dataset, test_dataset = dataset.split_dataset_geographically(dataset_full, x_limit=36.523466)
+        evaluate.rf_accuracy_estimation(train_dataset, test_dataset, log_message_model, folder_results_path)
 
 
 if __name__ == "__main__":
-
     main()
-
-
 
     """  
 
@@ -129,17 +145,6 @@ if __name__ == "__main__":
     
     """
 
-
-
-
-
-
-
-
-
-
-
-
     """
     # evaluation on the vanilla model
     #conf_mat_nn, class_report_nn = evaluate.nn_accuracy_estimation(trained_model_vanilla, test_data)
@@ -162,8 +167,6 @@ if __name__ == "__main__":
     # training a RF model
     conf_mat_rf, class_report_rf, _ = evaluate.rf_accuracy_estimation(train_set, test)
     """
-
-
 
 """
 ## previous dataset
@@ -189,9 +192,8 @@ if __name__ == "__main__":
 ## TODO for random forest do pre processing in a funciton
 
 ## creating train and test
-#nb_bands, dims = train[0][0].shape[0], train[0][0].shape[1]
-#x_train = np.concatenate([samp[0].reshape((nb_bands, dims ** 2)).T for samp in train])
-#x_test = np.concatenate([samp[0].reshape((nb_bands, dims ** 2)).T for samp in test])
-#y_test = np.concatenate([samp[1] for samp in test])
-#y_train = np.concatenate([samp[1] for samp in train])
-
+# nb_bands, dims = train[0][0].shape[0], train[0][0].shape[1]
+# x_train = np.concatenate([samp[0].reshape((nb_bands, dims ** 2)).T for samp in train])
+# x_test = np.concatenate([samp[0].reshape((nb_bands, dims ** 2)).T for samp in test])
+# y_test = np.concatenate([samp[1] for samp in test])
+# y_train = np.concatenate([samp[1] for samp in train])

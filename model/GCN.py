@@ -3,10 +3,15 @@ import torch_geometric.nn as pyg_nn
 import torch
 import torch.nn.functional as F
 import torch_geometric.utils as pyg_utils
+import utils as functions
 
-class GNNStack(nn.Module):
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+class GnnStack(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
-        super(GNNStack, self).__init__()
+        super(GnnStack, self).__init__()
+        self.learning_rate = 0.01
 
         self.dropout = 0.25
         self.number_layers = 2
@@ -22,8 +27,6 @@ class GNNStack(nn.Module):
             self.post_message_passing.append(nn.LayerNorm(hidden_dim))
 
         self.post_processing = nn.Linear(hidden_dim, output_dim)
-
-
 
     def forward(self, data):
         # x is the convention for node_features
@@ -45,6 +48,14 @@ class GNNStack(nn.Module):
 
         return out
 
+    def predict(self, data):
+        prediction = self.forward(data)
+        prediction = nn.Sigmoid()(prediction)
+        prediction = functions.converting_probability_array_to_binary(prediction, threshold=0.5)
+        if device.type == "cuda":
+            prediction = prediction.cuda()
+        return prediction
+
 
 class CustomConv(pyg_nn.MessagePassing):
     def __init__(self, in_channels, out_channels):
@@ -57,7 +68,6 @@ class CustomConv(pyg_nn.MessagePassing):
         torch.nn.init.xavier_uniform_(self.lin_self.weight, gain=0.001)
 
     def forward(self, x, edge_index, edge_attribute):
-
         edge_index, _ = pyg_utils.add_self_loops(edge_index)
 
         x = self.lin_self(x)
@@ -75,7 +85,6 @@ class CustomConv(pyg_nn.MessagePassing):
         return propagation
 
     def message(self, x_j, edge_index, size, edge_attr, norm):
-
         # x_j is the neighbour node
 
         message = norm.view(-1, 1) * x_j

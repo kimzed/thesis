@@ -18,28 +18,31 @@ import math
 from torch_geometric.data import Data
 from skimage.measure import regionprops
 from skimage.future import graph
+from skimage.future.graph import RAG
 from skimage.segmentation import slic
+import matplotlib.patches as mpatches
+from matplotlib.colors import ListedColormap
 
 from torch_geometric.data import Data, DataLoader
 
-
-working_directory = "//WURNET.NL/Homes/baron015/My Documents/thesis"
+working_directory = "C:/Users/57834/Documents/thesis/"
 os.chdir(working_directory)
 
 import utils as functions
 
-def main():
+FULLY_CONNECTED = True
 
+
+def main():
     print("""
           
           Loading the dataset
           
           """)
 
-    years = [2014, 2011]
+    years = [2014, 2011, 2019]
 
     for year in years:
-
         folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
         folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
 
@@ -48,15 +51,14 @@ def main():
 
 
 def pre_processing_graphs(folder_data):
-
     folder_gt = "ground_truth_rasters/"
     folder_landsat = "landsat_rasters/"
 
     files_gt = functions.get_files(folder_data + folder_gt)
     files_landsat = functions.get_files(folder_data + folder_landsat)
 
-    folder_semantic_maps = "semantic_maps_graphs/"
-    folder_graphs = "graphs/"
+    folder_semantic_maps = "semantic_maps_graphs_fully_connected/" if FULLY_CONNECTED else "semantic_maps_graphs/"
+    folder_graphs = "semantic_maps_graphs_fully_connected/" if FULLY_CONNECTED else "graphs/"
 
     print("""
 
@@ -94,9 +96,7 @@ def pre_processing_graphs(folder_data):
         np.save(filename_semantic_map, segmentation_map)
 
 
-
-def get_file_from_path(path: str)->str:
-
+def get_file_from_path(path: str) -> str:
     elements_file = path.split("/")
     filename = elements_file[-1]
 
@@ -104,12 +104,10 @@ def get_file_from_path(path: str)->str:
 
 
 def semantic_segmentation_dataset_to_graph_dataset(images: list, segmentation_masks: list):
-
     graphs = []
     segmentation_maps = []
 
     for image_file, mask_file in zip(images, segmentation_masks):
-
         array_image = load(image_file)
         array_mask = load(mask_file)
         # for landsat images we need to put the band at the end
@@ -119,12 +117,10 @@ def semantic_segmentation_dataset_to_graph_dataset(images: list, segmentation_ma
         graphs.append(graph)
         segmentation_maps.append(segmentation_map)
 
-
     return graphs, segmentation_maps
 
 
 def edge_index_from_segmentation_mask(segmentation_mask: np.array):
-
     adjacency_matrix = adjacency_matrix_from_labelled_image(segmentation_mask)
     edge_index = edge_index_from_adjacency_matrix(adjacency_matrix)
 
@@ -132,10 +128,7 @@ def edge_index_from_segmentation_mask(segmentation_mask: np.array):
 
 
 def make_graph_from_image(image, labels):
-
-
     labels_image = functions.resize_labels_into_image(labels, image)
-
 
     mask_segmentation = slic(image, n_segments=40, compactness=0.001, sigma=3,
                              multichannel=True)
@@ -145,7 +138,8 @@ def make_graph_from_image(image, labels):
         mask_segmentation -= 1
 
     label_nodes = get_node_label(labels_image, mask_segmentation)
-    adjacency_matrix = adjacency_matrix_from_labelled_image(mask_segmentation)
+
+    adjacency_matrix = adjacency_matrix_from_labelled_image(mask_segmentation, fully_connected=FULLY_CONNECTED)
     edge_index = edge_index_from_adjacency_matrix(adjacency_matrix)
     nodes_features, coordinates = nodes_features_from_image(image, mask_segmentation)
     distance_connected_nodes = extract_distance_edges(coordinates, edge_index)
@@ -156,13 +150,11 @@ def make_graph_from_image(image, labels):
 
 
 def get_node_label(image_label: np.array, superpixel_idx_matrix: np.array):
-
     y_nodes = []
     # first class is zero so we need to add one
-    number_nodes = superpixel_idx_matrix.max() +1
+    number_nodes = superpixel_idx_matrix.max() + 1
 
     for idx_node in range(number_nodes):
-
         node_selection = superpixel_idx_matrix == idx_node
         labels_node = image_label[node_selection]
         label_node = get_most_frequent_int_value(labels_node)
@@ -173,24 +165,23 @@ def get_node_label(image_label: np.array, superpixel_idx_matrix: np.array):
 
     return y_nodes_tensor
 
-def get_most_frequent_int_value(array: np.array):
 
+def get_most_frequent_int_value(array: np.array):
     counts = np.bincount(array.astype(int))
     most_frequent_value = np.argmax(counts)
 
     return most_frequent_value
 
-def nodes_features_from_image(image, mask_segmentation):
 
+def nodes_features_from_image(image, mask_segmentation):
     node_features = []
     coordinates = []
     data_np = np.array(image)
 
-    p = regionprops(mask_segmentation+1, intensity_image=data_np)
-    g = graph.rag_mean_color(data_np, mask_segmentation)
+    p = regionprops(mask_segmentation + 1, intensity_image=data_np)
+    g = rag_mean_color(data_np, mask_segmentation+1)
 
     for idx_node, node in enumerate(g.nodes):
-
         # Value with the mean intensity in the region.
         color = p[idx_node]['mean_intensity']
 
@@ -207,8 +198,13 @@ def nodes_features_from_image(image, mask_segmentation):
     return node_features, coordinates
 
 
-def adjacency_matrix_from_labelled_image(labelled_image):
+def adjacency_matrix_from_labelled_image(labelled_image: np.array, fully_connected=False) -> np.array:
     number_nodes = labelled_image.max() + 1
+
+    if fully_connected:
+        fully_connected_adjacency_matrix = np.ones([number_nodes] * 2)
+        fully_connected_adjacency_matrix -= np.eye(number_nodes)
+        return fully_connected_adjacency_matrix
 
     adjacency_matrix = np.zeros([number_nodes] * 2)
 
@@ -257,20 +253,18 @@ def distance_between_two_point(point1: tuple, point2: tuple):
 
     return distance
 
-def get_numbers_from_string(string):
 
+def get_numbers_from_string(string):
     number = ""
 
     for char in string:
 
         if char.isdigit():
-
             number += char
 
     number = int(number)
 
     return number
-
 
 
 def visualize_graph_sample_from_data_folders(folder_graphs, folder_segmentation_maps, folder_labels, folder_imgs):
@@ -280,9 +274,11 @@ def visualize_graph_sample_from_data_folders(folder_graphs, folder_segmentation_
     """
 
     segmentation_mask, superpixels, mask, img, graph, image_nodes_labels = get_random_graph_data(folder_graphs,
-                                                                                                 folder_segmentation_maps, folder_labels, folder_imgs)
+                                                                                                 folder_segmentation_maps,
+                                                                                                 folder_labels,
+                                                                                                 folder_imgs)
 
-    img = img[[3, 2, 1], :, :]
+    img = img[[2, 1, 0], :, :]
     if np.any(img < 0):
         img = img + np.absolute(img.min())
     img *= (1 / img.max())
@@ -294,30 +290,44 @@ def visualize_graph_sample_from_data_folders(folder_graphs, folder_segmentation_
     number_negatives = functions.count_value(graph.y, 0)
     print(f"graph has {number_positives} positives and {number_negatives} negatives")
 
-    fig, ((rgb, segmentation), (superpixels_ax, nodes_image)) = plt.subplots(2, 2, figsize=(14, 14))
+    fig = plt.figure(figsize=(20, 15))
 
-    rgb.set_title("RGB landsat image")
-    superpixels_ax.set_title("Superpixels")
-    nodes_image.set_title("Nodes label")
-    segmentation.set_title("Ground truth labels")
+    ax = fig.add_subplot(2, 2, 1, aspect=1)
+    ax.set(title='RGB landsat image')
+    ax.imshow(img)
+    plt.axis('off')
 
-    # removing axis
-    segmentation.axis("off")
-    superpixels_ax.axis("off")
-    nodes_image.axis("off")
-    rgb.axis("off")
+    ax = fig.add_subplot(2, 2, 2, aspect=1)
+    ax.set(title='Superpixels')
+    colors_ground_truth = ListedColormap(['black', 'blue'])
+    ax.imshow(superpixels)
+    plt.axis('off')
 
-    # showing the data
-    rgb = rgb.imshow(img)
-    segmentation = segmentation.imshow(mask)
-    superpixels_ax = superpixels_ax.imshow(superpixels)
-    nodes_image = nodes_image.imshow(image_nodes_labels)
+    ax = fig.add_subplot(2, 2, 3, aspect=1)
+    ax.set(title='Ground truth labels')
+    ax.imshow(mask, cmap=colors_ground_truth)
+    plt.axis('off')
+
+    ax = fig.add_subplot(2, 2, 4, aspect=1)
+    ax.set(title='Nodes labels')
+    ax.imshow(image_nodes_labels, cmap=colors_ground_truth)
+    plt.axis('off')
+
+    cols = ['black', 'blue']
+    labels_legend = ['not greenhouse', 'greenhouse']
+    number_labels = len(labels_legend)
+
+    patches = [mpatches.Patch(color=cols[i], label=labels_legend[i]) for i in range(number_labels)]
+    ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    # fig.legend()
+
+    file_plot = "maps_and_results/example_graph.png"
+    plt.savefig(file_plot)
 
     plt.show()
 
+
 def get_random_graph_data(folder_graphs, folder_segmentation_maps, folder_labels, folder_imgs):
-
-
     files_graphs = functions.get_files(folder_graphs)
     files_segmentation_maps = functions.get_files(folder_segmentation_maps)
     files_labels = functions.get_files(folder_labels)
@@ -325,6 +335,8 @@ def get_random_graph_data(folder_graphs, folder_segmentation_maps, folder_labels
 
     len_data = len(files_graphs)
     idx_sample = randint(0, len_data)
+
+    print(f"randome graph has index {idx_sample}")
 
     segmentation_mask = np.load(files_labels[idx_sample])
     superpixels = np.load(files_segmentation_maps[idx_sample])
@@ -374,6 +386,39 @@ def get_connected_nodes_idx(idx_node: int, edge_index) -> np.array:
 
     return np.array(connected_neighbours)
 
+def rag_mean_color(image, labels, connectivity=2, mode='distance',
+                   sigma=255.0):
+    """
+    this function had to be adapted because it was meant for three bands only input
+    """
+    graph = RAG(labels, connectivity=connectivity)
+
+    for n in graph:
+        graph.nodes[n].update({'labels': [n],
+                               'pixel count': 0,
+                               'total color': np.array([0]*image.shape[-1],
+                                                      dtype=np.double)})
+
+    for index in np.ndindex(labels.shape):
+        current = labels[index]
+        graph.nodes[current]['pixel count'] += 1
+        graph.nodes[current]['total color'] += image[index]
+
+    for n in graph:
+        graph.nodes[n]['mean color'] = (graph.nodes[n]['total color'] /
+                                        graph.nodes[n]['pixel count'])
+
+    for x, y, d in graph.edges(data=True):
+        diff = graph.nodes[x]['mean color'] - graph.nodes[y]['mean color']
+        diff = np.linalg.norm(diff)
+        if mode == 'similarity':
+            d['weight'] = math.e ** (-(diff ** 2) / sigma)
+        elif mode == 'distance':
+            d['weight'] = diff
+        else:
+            raise ValueError("The mode '%s' is not recognised" % mode)
+
+    return graph
 
 if __name__ == '__main__':
     main()
