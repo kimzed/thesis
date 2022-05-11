@@ -29,18 +29,25 @@ current_time = now.strftime("%Y_%m_%d_%H_%M")
 import dataset
 import dataset_graphs
 
-DO_GRAPH_ANALYSIS = False
+DO_GRAPH_ANALYSIS = True
 DO_CNN_RUN = False
 DO_RF_OBIA = False
-DO_RF = True
+DO_RF = False
+SLIC_ACCURACY = False
 
 # 2019, 2014, 2011
-years = [2019]
+years = [2019, 2014, 2011]
+
+POSITIVES_SAMPLES_ONLY = True
 
 
 def main():
+    if SLIC_ACCURACY:
+        accuracy_slic = evaluate.accuracy_slic_segmentation()
+        print(f"Accuracy of slic segmentation for graph dataset is {accuracy_slic}")
     if DO_CNN_RUN:
-        folders_data, folders_labels = dataset.get_data_folders(years)
+        folders_data, folders_labels = dataset.get_data_folders(years,
+                                                                rasters_with_positives_only=POSITIVES_SAMPLES_ONLY)
 
         datasets = dataset.get_datasets(data_folders=folders_data, label_folders=folders_labels)
 
@@ -55,8 +62,8 @@ def main():
 
         print("starting the training")
 
-        log_message_model = "trying to get some good results and having a baseline"
-        folder_results_path = f"runs/CnnModel/{current_time}/"
+        log_message_model = "training on the positive samples only"
+        folder_results_path = f"runs/CnnModel/positives_only_{current_time}/"
         os.mkdir(folder_results_path)
 
         model = train.train(model, train_dataset, number_epochs=30, description_model=log_message_model,
@@ -67,17 +74,18 @@ def main():
                             folder_results=folder_results_path)
 
     if DO_GRAPH_ANALYSIS:
-        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years)
+        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years,
+                                                                                              rasters_with_positives_only=POSITIVES_SAMPLES_ONLY)
 
         dataset_full = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
         train_dataset, test_dataset = dataset_graphs.split_dataset_geographically(dataset_full, x_limit=36.523466)
 
-        import model.gcn as gcn
-        model = gcn.GnnStack(input_dim=13, hidden_dim=128, output_dim=1)
+        import model.basic_gnn as gcn
+        model = gcn.Gcn(input_dim=13, hidden_dim=128, output_dim=1)
         model.learning_rate = 0.01
 
-        log_message_model = "Testing on a single year to see if we can predict positives."
-        folder_results_path = f"runs/Gnn/normal_gcn_{current_time}/"
+        log_message_model = "most basic model, reducing the number of layers, training only on positives, basic parameters."
+        folder_results_path = f"runs/Gnn/basic_gcn_two_layers_positives_only_{current_time}/"
         os.mkdir(folder_results_path)
 
         graph_model = train.train_graph(model, train_dataset, number_epochs=40, description_model=log_message_model,
@@ -87,11 +95,12 @@ def main():
                                   folder_results=folder_results_path)
 
     if DO_RF_OBIA:
-        log_message_model = "testing folder saves"
-        folder_results_path = f"runs/obia_baseline/{current_time}/"
+        log_message_model = "obia rf with only positive samples"
+        folder_results_path = f"runs/obia_baseline/positives_only_{current_time}/"
         os.mkdir(folder_results_path)
 
-        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years)
+        folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years,
+                                                                rasters_with_positives_only=POSITIVES_SAMPLES_ONLY)
         dataset_full = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
         train_dataset, test_dataset = dataset_graphs.split_dataset_geographically(dataset_full, x_limit=36.523466)
 
@@ -103,11 +112,12 @@ def main():
                                         folder_results=folder_results_path)
 
     if DO_RF:
-        log_message_model = "testing folder saves"
-        folder_results_path = f"runs/rf_baseline/{current_time}/"
+        log_message_model = "simple rf with only positive samples"
+        folder_results_path = f"runs/rf_baseline/positives_only_{current_time}/"
         os.mkdir(folder_results_path)
 
-        folders_data, folders_labels = dataset.get_data_folders(years)
+        folders_data, folders_labels = dataset.get_data_folders(years,
+                                                                rasters_with_positives_only=POSITIVES_SAMPLES_ONLY)
         datasets = dataset.get_datasets(data_folders=folders_data, label_folders=folders_labels)
         dataset_full = ConcatDataset(datasets)
         train_dataset, test_dataset = dataset.split_dataset_geographically(dataset_full, x_limit=36.523466)

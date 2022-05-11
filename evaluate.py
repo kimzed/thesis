@@ -17,6 +17,7 @@ import torch
 from torch.utils.data import DataLoader
 from sklearn import metrics
 import datetime
+import dataset_graphs
 
 # importing useful functions
 import dataset
@@ -92,6 +93,8 @@ def validation_graph(model: nn.Module, dataset: torch.utils.data.dataset, descri
     model = model.eval()
 
     from torch_geometric.data import DataLoader
+
+
     loader = DataLoader(dataset, batch_size=2000, shuffle=True)
 
     image_prediction, mask, binary_prediction = predict_on_graph_dataset(model, loader)
@@ -107,14 +110,12 @@ def validation_graph(model: nn.Module, dataset: torch.utils.data.dataset, descri
     functions.write_text_file(path=file_results, text=results_to_save)
 
 
-def predict_on_graph_dataset(model: nn.Module, dataset: torch.utils.data.dataset):
-    from torch_geometric.data import DataLoader
-    loader = DataLoader(dataset, batch_size=2000, shuffle=True)
+def predict_on_graph_dataset(model: nn.Module, dataset: torch_geometric.data.DataLoader):
 
     prediction_total = []
     y_data_total = []
     binary_prediction_total = []
-    for data in loader:
+    for data in dataset:
         graph, mask, segmentation_map, coordinate = data
         graph = graph.to(device)
 
@@ -139,6 +140,31 @@ def predict_on_graph_dataset(model: nn.Module, dataset: torch.utils.data.dataset
     binary_prediction_total = np.concatenate(binary_prediction_total)
 
     return prediction_total, y_data_total, binary_prediction_total
+
+
+def accuracy_slic_segmentation():
+    years = [2019, 2014, 2011]
+    folder_graphs, folders_labels, folder_semantic_maps = dataset_graphs.get_data_folders(years,
+                                                                                          rasters_with_positives_only=True)
+    dataset_full = dataset_graphs.merge_datasets(folders_labels, folder_graphs, folder_semantic_maps)
+
+    number_samples = dataset_full.__len__()
+    accuracy_total = 0.0
+    for i_sample in range(number_samples):
+        sample = dataset_full.__getitem__(i_sample)
+        graph, mask_tensor, segmentation_map_tensor, _ = sample
+        nodes_labels = graph.y
+        mask_tensor = functions.numpy_raster(mask_tensor)
+        graph_mask = functions.graph_labels_to_image(nodes_labels, segmentation_map_tensor)
+
+        number_pixels = graph_mask.shape[0] ** 2
+        node_labels_are_correct = mask_tensor == graph_mask
+        accuracy = functions.count_value(node_labels_are_correct, True) / number_pixels
+        accuracy_total += accuracy
+
+    accuracy_total /= number_samples
+
+    return accuracy_total
 
 
 def rf_accuracy_estimation(x_train: np.array, y_train: np.array, x_test: np.array, y_test: np.array,

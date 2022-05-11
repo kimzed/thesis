@@ -75,23 +75,26 @@ def get_datasets(data_folders: list[str], label_folders: list[str]) -> list[Data
     return datasets
 
 
-def get_data_folders(years: list) -> tuple:
+def get_data_folders(years: list, rasters_with_positives_only=False) -> tuple[list[str], list[str]]:
     folders_data = []
     folders_labels = []
 
     for year in years:
-        folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+
         folder_positive_dataset = f"data/{year}/greenhouse_dataset/"
 
-        folder_data_nairo = f"{folder_nairobi_dataset}landsat_rasters"
-        folders_data.append(folder_data_nairo)
         folder_data_positives = f"{folder_positive_dataset}landsat_rasters"
         folders_data.append(folder_data_positives)
 
-        folder_label_nairo = f"{folder_nairobi_dataset}ground_truth_rasters"
-        folders_labels.append(folder_label_nairo)
         folder_labels_positives = f"{folder_positive_dataset}ground_truth_rasters"
         folders_labels.append(folder_labels_positives)
+
+        if not rasters_with_positives_only:
+            folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+            folder_data_nairo = f"{folder_nairobi_dataset}landsat_rasters"
+            folders_data.append(folder_data_nairo)
+            folder_label_nairo = f"{folder_nairobi_dataset}ground_truth_rasters"
+            folders_labels.append(folder_label_nairo)
 
     return folders_data, folders_labels
 
@@ -127,7 +130,8 @@ def split_dataset_geographically(dataset: Dataset, x_limit: float) -> Tuple[Data
 
     return train_dataset, test_dataset
 
-def get_x_and_y_from_subset_dataset(dataset_mix: torch.utils.data.dataset.Subset)-> Tuple[np.array, np.array]:
+
+def get_x_and_y_from_subset_dataset(dataset_mix: torch.utils.data.dataset.Subset) -> Tuple[np.array, np.array]:
     data_arrays = []
     label_arrays = []
     number_samples = dataset_mix.__len__()
@@ -138,7 +142,7 @@ def get_x_and_y_from_subset_dataset(dataset_mix: torch.utils.data.dataset.Subset
 
         number_bands = data.shape[0]
         image_size = data.shape[1]
-        data = data.reshape(number_bands, image_size**2)
+        data = data.reshape(number_bands, image_size ** 2)
         data = np.moveaxis(data, 0, -1)
 
         label_arrays.append(labels)
@@ -148,4 +152,3 @@ def get_x_and_y_from_subset_dataset(dataset_mix: torch.utils.data.dataset.Subset
     x = np.concatenate(data_arrays, axis=0)
 
     return x, y
-

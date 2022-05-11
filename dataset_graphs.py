@@ -76,32 +76,35 @@ def merge_datasets(label_folders: list, graph_folders: list,
     return dataset_out
 
 
-def get_data_folders(years: list) -> tuple:
+def get_data_folders(years: list, rasters_with_positives_only=False) -> tuple[list[str], list[str], list[str]]:
     folders_labels = []
     folder_graphs = []
     folder_semantic_maps = []
 
     for year in years:
-        folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+
         folder_positive_dataset = f"data/{year}/greenhouse_dataset/"
 
         # loading labels ground truth
-        folder_label_nairo = f"{folder_nairobi_dataset}ground_truth_rasters"
-        folders_labels.append(folder_label_nairo)
         folder_labels_positives = f"{folder_positive_dataset}ground_truth_rasters"
         folders_labels.append(folder_labels_positives)
 
         # loading graphs
-        folder_graphs_nairo = f"{folder_nairobi_dataset}graphs"
-        folder_graphs.append(folder_graphs_nairo)
         folder_labels_positives = f"{folder_positive_dataset}graphs"
         folder_graphs.append(folder_labels_positives)
 
         # loading semantic_maps
-        folder_semantic_map_nairo = f"{folder_nairobi_dataset}semantic_maps_graphs"
-        folder_semantic_maps.append(folder_semantic_map_nairo)
         folder_semantic_map_positives = f"{folder_positive_dataset}semantic_maps_graphs"
         folder_semantic_maps.append(folder_semantic_map_positives)
+
+        if not rasters_with_positives_only:
+            folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+            folder_label_nairo = f"{folder_nairobi_dataset}ground_truth_rasters"
+            folders_labels.append(folder_label_nairo)
+            folder_graphs_nairo = f"{folder_nairobi_dataset}graphs"
+            folder_graphs.append(folder_graphs_nairo)
+            folder_semantic_map_nairo = f"{folder_nairobi_dataset}semantic_maps_graphs"
+            folder_semantic_maps.append(folder_semantic_map_nairo)
 
     return folder_graphs, folders_labels, folder_semantic_maps
 
