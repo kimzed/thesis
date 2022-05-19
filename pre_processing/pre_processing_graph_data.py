@@ -40,7 +40,7 @@ def main():
           
           """)
 
-    years = [2014, 2011, 2019]
+    years = [2014, 2019]
 
     for year in years:
         folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
@@ -57,8 +57,8 @@ def pre_processing_graphs(folder_data):
     files_gt = functions.get_files(folder_data + folder_gt)
     files_landsat = functions.get_files(folder_data + folder_landsat)
 
-    folder_semantic_maps = "semantic_maps_graphs_fully_connected/" if FULLY_CONNECTED else "semantic_maps_graphs/"
-    folder_graphs = "semantic_maps_graphs_fully_connected/" if FULLY_CONNECTED else "graphs/"
+    folder_semantic_maps = "semantic_maps_graphs/"
+    folder_graphs = "graphs_fully_connected/" if FULLY_CONNECTED else "graphs/"
 
     print("""
 
@@ -179,13 +179,13 @@ def nodes_features_from_image(image, mask_segmentation):
     data_np = np.array(image)
 
     p = regionprops(mask_segmentation + 1, intensity_image=data_np)
-    g = rag_mean_color(data_np, mask_segmentation+1)
+    g = rag_mean_color(data_np, mask_segmentation + 1)
 
     for idx_node, node in enumerate(g.nodes):
         # Value with the mean intensity in the region.
         color = p[idx_node]['mean_intensity']
 
-        # Hu moments (translation, scale and rotation invariant).
+        # Hu moments (translation, scale and rotation invariance).
         invariants = p[idx_node]['moments_hu']
         coordinate_center = torch.Tensor(p[idx_node]['centroid']).unsqueeze(0)
         feat = torch.cat([torch.Tensor(color), torch.Tensor(invariants)]).unsqueeze(0)
@@ -386,6 +386,7 @@ def get_connected_nodes_idx(idx_node: int, edge_index) -> np.array:
 
     return np.array(connected_neighbours)
 
+
 def rag_mean_color(image, labels, connectivity=2, mode='distance',
                    sigma=255.0):
     """
@@ -396,8 +397,8 @@ def rag_mean_color(image, labels, connectivity=2, mode='distance',
     for n in graph:
         graph.nodes[n].update({'labels': [n],
                                'pixel count': 0,
-                               'total color': np.array([0]*image.shape[-1],
-                                                      dtype=np.double)})
+                               'total color': np.array([0] * image.shape[-1],
+                                                       dtype=np.double)})
 
     for index in np.ndindex(labels.shape):
         current = labels[index]
@@ -419,6 +420,7 @@ def rag_mean_color(image, labels, connectivity=2, mode='distance',
             raise ValueError("The mode '%s' is not recognised" % mode)
 
     return graph
+
 
 if __name__ == '__main__':
     main()

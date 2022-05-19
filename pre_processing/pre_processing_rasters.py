@@ -18,7 +18,7 @@ os.chdir(working_directory)
 # possible years: 2019, 2014, 2011
 year = 2019
 
-satellite_is_landsat8 = year < 2013
+satellite_is_landsat8 = year > 2013
 if satellite_is_landsat8:
     bands_selected = [1, 2, 3, 4, 5, 6]
 else:
