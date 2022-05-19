@@ -1,37 +1,38 @@
-
-
 import os
 
 working_directory = "C:/Users/57834/Documents/thesis/"
 os.chdir(working_directory)
 
-
 import dataset_graphs as dataset
-import utils as functions
-import matplotlib.pyplot as plt
-from random import randint
 import numpy as np
-import torch
-from skimage.segmentation import slic
+from utils_graph import visualize_random_edge_index, visualize_graph_sample_from_data_folders, get_random_graph_data, \
+    visualize_node_features
+
+FULLY_CONNECTED = True
 
 def main():
-
     print("loading the data")
     year = 2011
     folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
 
-    folder_graphs = os.path.join(folder_greenhouse_dataset, "graphs")
+    folder_graphs = os.path.join(folder_greenhouse_dataset, "graphs_fully_connected") if FULLY_CONNECTED else os.path.join(folder_greenhouse_dataset, "graphs")
     folder_semantic_maps = os.path.join(folder_greenhouse_dataset, "semantic_maps_graphs")
     folder_labels = os.path.join(folder_greenhouse_dataset, "ground_truth_rasters")
     folder_imgs = os.path.join(folder_greenhouse_dataset, "landsat_rasters")
 
     print("visualization...")
+    visualize_node_features(i_node_feature=4)
 
-    import pre_processing.pre_processing_graph_data as graph_functions
+    superpixels, mask, img, graph, image_nodes_labels = get_random_graph_data(folder_graphs,
+                                                                              folder_semantic_maps,
+                                                                              folder_labels,
+                                                                              folder_imgs)
 
-    graph_functions.visualize_random_edge_index(folder_graphs, folder_semantic_maps, folder_labels, folder_imgs)
+    visualize_random_edge_index(folder_graphs, folder_semantic_maps, folder_labels, folder_imgs)
 
-    graph_functions.visualize_graph_sample_from_data_folders(folder_graphs, folder_semantic_maps, folder_labels, folder_imgs)
+    visualize_graph_sample_from_data_folders(folder_graphs, folder_semantic_maps, folder_labels,
+                                             folder_imgs)
+
 
 
     dataset_graphs = dataset.GraphDatasetSemanticSegmentation(folder_graphs, folder_labels, folder_semantic_maps)
@@ -88,9 +89,4 @@ def main():
 """
 
 
-
 main()
-
-
-
-

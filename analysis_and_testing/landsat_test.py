@@ -7,19 +7,12 @@ Created on Wed Jul  7 11:29:33 2021
 
 # Import modules
 import os
-import sys
-import pandas as pd
-import numpy as np
 import ee
 from ee import batch
 import osmnx as ox
 from shapely.geometry import mapping
 import datetime
-import json
-import geojson
-import tempfile
 import geopandas as gpd
-from rasterio.plot import show
 
 
 
