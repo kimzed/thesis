@@ -43,10 +43,10 @@ def main():
     years = [2011, 2014, 2019]
 
     for year in years:
-        folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
+        #folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
         folder_greenhouse_dataset = f"data/{year}/greenhouse_dataset/"
 
-        pre_processing_graphs(folder_nairobi_dataset)
+        #pre_processing_graphs(folder_nairobi_dataset)
         pre_processing_graphs(folder_greenhouse_dataset)
 
 
