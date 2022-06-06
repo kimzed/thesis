@@ -8,22 +8,18 @@ Created on Tue Nov 30 15:16:58 2021
 import os
 from numpy import load
 import numpy as np
-from skimage.segmentation import slic
 import matplotlib.pyplot as plt
 from random import randint
 import torch
-from skimage.measure import regionprops
-from skimage.future import graph
 import math
-from torch_geometric.data import Data
 from skimage.measure import regionprops
-from skimage.future import graph
 from skimage.future.graph import RAG
 from skimage.segmentation import slic
 import matplotlib.patches as mpatches
 from matplotlib.colors import ListedColormap
+from typing import List, Tuple
 
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import Data
 
 working_directory = "C:/Users/57834/Documents/thesis/"
 os.chdir(working_directory)
@@ -31,6 +27,10 @@ os.chdir(working_directory)
 import utils as functions
 
 FULLY_CONNECTED = True
+EXTRA_NODE_FEATURE = True
+NEAREST_NEIGHBOURS = True
+RATIO_DISTANCE_NEIGHBOUR = 0.3
+NORMALIZATION = True
 
 
 def main():
@@ -40,7 +40,7 @@ def main():
           
           """)
 
-    years = [2014, 2019]
+    years = [2011, 2014, 2019]
 
     for year in years:
         folder_nairobi_dataset = f"data/{year}/nairobi_negatives_dataset/"
@@ -113,6 +113,8 @@ def semantic_segmentation_dataset_to_graph_dataset(images: list, segmentation_ma
         # for landsat images we need to put the band at the end
         array_image = functions.put_bands_in_last_dimension(array_image)
 
+        # array_image = array_image[:, :, [2,1,0]]
+
         graph, segmentation_map = make_graph_from_image(array_image, array_mask)
         graphs.append(graph)
         segmentation_maps.append(segmentation_map)
@@ -144,9 +146,30 @@ def make_graph_from_image(image, labels):
     nodes_features, coordinates = nodes_features_from_image(image, mask_segmentation)
     distance_connected_nodes = extract_distance_edges(coordinates, edge_index)
     graph = Data(x=nodes_features, edge_index=edge_index, y=label_nodes,
-                 edge_attr=distance_connected_nodes)
+                 edge_attr=distance_connected_nodes, pos=torch.stack(coordinates))
+
+    if NEAREST_NEIGHBOURS and FULLY_CONNECTED:
+        max_distance_graph = graph.edge_attr.max()
+        max_distance_neighbour = max_distance_graph * RATIO_DISTANCE_NEIGHBOUR
+        is_within_distance = graph.edge_attr < max_distance_neighbour
+        new_distances = graph.edge_attr[is_within_distance]
+        new_edges = graph.edge_index[:, is_within_distance]
+        graph.edge_index, graph.edge_attr = new_edges, new_distances
+
+    if NORMALIZATION:
+        graph.edge_attr = functions.normalize_features(graph.edge_attr[:, None]).squeeze()
+        graph.pos = functions.normalize_features(graph.pos)
+        # graph.x = functions.soft_normalize_features(graph.x)
 
     return graph, mask_segmentation
+
+
+def proportion_of_positives_is_above_threshold(data: np.ndarray, threshold: float) -> bool:
+    data = data.copy().flatten()
+    count = np.count_nonzero(data == 1)
+    proportion = count / len(data)
+
+    return True if proportion > threshold else False
 
 
 def get_node_label(image_label: np.array, superpixel_idx_matrix: np.array):
@@ -157,6 +180,12 @@ def get_node_label(image_label: np.array, superpixel_idx_matrix: np.array):
     for idx_node in range(number_nodes):
         node_selection = superpixel_idx_matrix == idx_node
         labels_node = image_label[node_selection]
+
+        #if proportion_of_positives_is_above_threshold(data=labels_node, threshold=PROPORTION_GREENHOUSE_LABEL_THRESHOLD):
+        #    label_node = 1
+        #else:
+        #    label_node = 0
+
         label_node = get_most_frequent_int_value(labels_node)
 
         y_nodes.append(label_node)
@@ -178,17 +207,21 @@ def nodes_features_from_image(image, mask_segmentation):
     coordinates = []
     data_np = np.array(image)
 
-    p = regionprops(mask_segmentation + 1, intensity_image=data_np)
-    g = rag_mean_color(data_np, mask_segmentation + 1)
+    superpixel_analysis = regionprops(mask_segmentation + 1, intensity_image=data_np)
+    number_nodes = len(superpixel_analysis)
 
-    for idx_node, node in enumerate(g.nodes):
+    for idx_node in range(number_nodes):
         # Value with the mean intensity in the region.
-        color = p[idx_node]['mean_intensity']
+        color = superpixel_analysis[idx_node]['mean_intensity']
 
         # Hu moments (translation, scale and rotation invariance).
-        invariants = p[idx_node]['moments_hu']
-        coordinate_center = torch.Tensor(p[idx_node]['centroid']).unsqueeze(0)
-        feat = torch.cat([torch.Tensor(color), torch.Tensor(invariants)]).unsqueeze(0)
+        if EXTRA_NODE_FEATURE:
+            invariants = superpixel_analysis[idx_node]['moments_hu']
+            feat = torch.cat([torch.Tensor(color), torch.Tensor(invariants)]).unsqueeze(0)
+        else:
+            feat = torch.Tensor(color).unsqueeze(0)
+        coordinate_center = torch.Tensor(superpixel_analysis[idx_node]['centroid']).unsqueeze(0)
+
         node_features.append(feat)
         coordinates.append(coordinate_center[0])
 
@@ -229,7 +262,7 @@ def edge_index_from_adjacency_matrix(adjacency_matrix):
     return edge_index
 
 
-def extract_distance_edges(coordinates, edge_index):
+def extract_distance_edges(coordinates, edge_index: List[List]):
     number_edges = edge_index.shape[1]
     distances_edges = torch.zeros(number_edges)
 
@@ -389,9 +422,6 @@ def get_connected_nodes_idx(idx_node: int, edge_index) -> np.array:
 
 def rag_mean_color(image, labels, connectivity=2, mode='distance',
                    sigma=255.0):
-    """
-    this function had to be adapted because it was meant for three bands only input
-    """
     graph = RAG(labels, connectivity=connectivity)
 
     for n in graph:
@@ -405,12 +435,12 @@ def rag_mean_color(image, labels, connectivity=2, mode='distance',
         graph.nodes[current]['pixel count'] += 1
         graph.nodes[current]['total color'] += image[index]
 
-    for n in graph:
-        graph.nodes[n]['mean color'] = (graph.nodes[n]['total color'] /
-                                        graph.nodes[n]['pixel count'])
+    for i_node in graph:
+        graph.nodes[i_node]['mean color'] = (graph.nodes[i_node]['total color'] /
+                                             graph.nodes[i_node]['pixel count'])
 
-    for x, y, d in graph.edges(data=True):
-        diff = graph.nodes[x]['mean color'] - graph.nodes[y]['mean color']
+    for i_target, i_neighbour, d in graph.edges(data=True):
+        diff = graph.nodes[i_target]['mean color'] - graph.nodes[i_neighbour]['mean color']
         diff = np.linalg.norm(diff)
         if mode == 'similarity':
             d['weight'] = math.e ** (-(diff ** 2) / sigma)

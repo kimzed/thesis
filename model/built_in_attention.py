@@ -1,4 +1,4 @@
-from torch_geometric.nn import GraphConv
+from torch_geometric.nn import GATv2Conv
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -7,21 +7,18 @@ from torch.nn import Linear
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class Gnn(torch.nn.Module):
+class AttentionGnn(torch.nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
-        super(Gnn, self).__init__()
+        super(AttentionGnn, self).__init__()
         torch.manual_seed(42)
         self.learning_rate = 0.01
-        self.initial_layer = GraphConv(input_dim, hidden_dim)
-        self.layer1 = GraphConv(hidden_dim, hidden_dim)
-        self.layer2 = GraphConv(hidden_dim, hidden_dim)
+        self.initial_layer = GATv2Conv(input_dim, hidden_dim)
+        self.layer1 = GATv2Conv(hidden_dim, hidden_dim)
+        self.layer2 = GATv2Conv(hidden_dim, hidden_dim)
         self.out = Linear(hidden_dim, output_dim)
 
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
-
-        # from forum recommendation, testing adding coordinate as an extra feature
-        #x = torch.cat([data.x, data.pos], dim=-1)
 
         x = self.initial_layer(x=x, edge_index=edge_index)
         x = torch.tanh(x)

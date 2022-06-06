@@ -1,15 +1,11 @@
-
 import os
 import rasterio
 import rasterio.mask
 import numpy as np
-from shapely.geometry import box
 import rasterio.mask
-#import osmnx as ox
-from shapely.geometry import mapping
+import osmnx as ox
 import geopandas
 import csv
-from shapely.geometry.polygon import Polygon
 from shapely.geometry.multipolygon import MultiPolygon
 
 # google earth library
@@ -22,9 +18,7 @@ os.chdir(working_directory)
 folder_polygons_preprocess = "pre_processing_data/labels_polygons_pre_processing/"
 folder_rasters_preprocess = "pre_processing_data/rasters/"
 
-
 import utils as functions
-
 
 
 #### Functions
@@ -40,7 +34,7 @@ def converting_non_zeros_to_ones(arrays: list):
     return arrays_result
 
 
-def masking_rasters_on_multipolygon(multi_polygon:MultiPolygon, rasters: list[rasterio.io.DatasetReader]):
+def masking_rasters_on_multipolygon(multi_polygon: MultiPolygon, rasters: list[rasterio.io.DatasetReader]):
     cropped_rasters_result = []
 
     multi_polygon = [polygon for polygon in multi_polygon]
@@ -52,7 +46,9 @@ def masking_rasters_on_multipolygon(multi_polygon:MultiPolygon, rasters: list[ra
 
     return cropped_rasters_result
 
-def masking_polygons_on_raster(polygons:geopandas.geodataframe.GeoDataFrame, raster: rasterio.io.DatasetReader, bands: list)-> np.array:
+
+def masking_polygons_on_raster(polygons: geopandas.geodataframe.GeoDataFrame, raster: rasterio.io.DatasetReader,
+                               bands: list) -> np.array:
     rasters_output = []
 
     for polygon in list(polygons.geometry):
@@ -61,7 +57,8 @@ def masking_polygons_on_raster(polygons:geopandas.geodataframe.GeoDataFrame, ras
 
     return rasters_output
 
-def resize_list_raster(rast_np:list):
+
+def resize_list_raster(rast_np: list):
     ## linear interpolation to get the same height and width
     # defining the new size
     sizes = [rast.shape[1] for rast in rast_np]
@@ -112,12 +109,6 @@ def regrid_label(raster, size):
     rast_resh = rast_resh.flatten()
 
     return rast_resh
-
-
-
-
-
-
 
 
 def CentroidPoints(df):
@@ -194,21 +185,19 @@ def PointRegion(region, epsg):
 
 
 def upload_eeImages_to_drive(eeimages: list, eegeometris: list, file_name_upload):
-    
     i_image = 0
 
     for image, geometry in zip(eeimages, eegeometris):
         name_file_upload = f"{file_name_upload}_{i_image}"
         UploadingEEData(image, name_file_upload, geometry)
-        
+
         i_image += 1
-        
+
 
 def UploadingEEData(ee_image, name_file, poly):
-    
     folder = functions.get_folders_from_path(name_file)
     name_file = functions.get_file_name_from_path(name_file)
-    
+
     # Creating the exporting object
     out = batch.Export.image.toDrive(image=ee_image,
                                      scale=30,
@@ -272,8 +261,7 @@ def extract_points_poly(poly):
     return points
 
 
-def get_centroids_from_polygons(polygons:list)->list:
-
+def get_centroids_from_polygons(polygons: list) -> list:
     centroids = []
 
     for polygon in polygons:
@@ -292,19 +280,17 @@ def transform_geodataframe_into_vectors(geodataframe):
     return vectors
 
 
-def get_centroids_from_rasters(rasters)-> list:
-
+def get_centroids_from_rasters(rasters) -> list:
     centroids = []
 
     for raster in rasters:
-
-        center_point = raster.xy(0,0)
+        center_point = raster.xy(0, 0)
         centroids.append(center_point)
 
     return centroids
 
-def normalize_raster_band_wise(raster:np.array)-> np.array:
 
+def normalize_raster_band_wise(raster: np.array) -> np.array:
     number_bands = raster.shape[0]
 
     for i_band in range(number_bands):
@@ -313,15 +299,15 @@ def normalize_raster_band_wise(raster:np.array)-> np.array:
 
     return raster
 
-def write_tuples_to_csv(tuples, file_path)-> None:
 
-
+def write_tuples_to_csv(tuples, file_path) -> None:
     with open(file_path, 'w', newline='') as f:
         write = csv.writer(f)
         write.writerows(tuples)
 
 
 from shapely.geometry import *
+
 
 def remove_third_dimension(geom):
     if geom.is_empty:

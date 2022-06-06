@@ -22,18 +22,21 @@ import ee
 working_directory = "C:/Users/57834/Documents/thesis/"
 os.chdir(working_directory)
 
-import utils as functions
-import pre_processing.utils_preprocessing as function_pre_processing
 
-year = 2011
+import utils_preprocessing as function_pre_processing
+
+year = 2020
 next_year = year + 1
+
 
 folder_polygons_preprocess_year = f"pre_processing_data/labels_polygons_pre_processing/{year}/"
 folder_polygons_preprocess = "pre_processing_data/labels_polygons_pre_processing/"
 
-#code_ls8 = "LANDSAT/LC08/C01/T1_SR"
-#code_ls7 = "LANDSAT/LE07/C01/T1_SR"
-code_landsat = "LANDSAT/LE07/C01/T1_SR"
+satellite_is_landsat8 = year > 2013
+if satellite_is_landsat8:
+    code_landsat = "LANDSAT/LC08/C01/T1_SR"
+else:
+    code_landsat = "LANDSAT/LE07/C01/T1_SR"
 
 
 def main():
@@ -117,5 +120,5 @@ def main():
 
 
 
-### running the program
-main()
+if __name__ == "__main__":
+    main()
