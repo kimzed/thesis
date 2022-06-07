@@ -12,9 +12,16 @@ from torch_geometric.data import DataLoader
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from pathlib import Path
+from evaluate import predict_on_graph_dataset
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import auc as auc_scoring
+import torch.nn as nn
+from typing import Tuple
 
+from sklearn import metrics
 # importing our functions
 import utils as fun
+from evaluate import predict_on_dataset
 
 import torch.optim as optim
 
@@ -32,21 +39,27 @@ current_time = now.strftime("%Y_%m_%d_%H_%M")
 folder_cnn_save = "runs/CnnModel/"
 folder_evaluation_models = f"{folder_cnn_save}evaluation_models/"
 
+UNIT_TEST = {'is_true': False}
+
 
 # to check memory allocation: torch.cuda.memory_summary(device=None, abbreviated=False)
 
 
 def train_graph(model, dataset, number_epochs, description_model: str, folder_result: str):
-    train_data, test_data= train_test_split(dataset, test_size=0.2)
+    train_data, test_data = train_test_split(dataset, test_size=0.2)
 
     loader = DataLoader(train_data, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_data, batch_size=1, shuffle=True)
 
     model.train()
     model = model.to(device)
-    opt = optim.Adam(model.parameters(), lr=model.learning_rate)
+    # option to add weight decay, but it was not working very well
+    optimizer = optim.Adam(model.parameters(), lr=model.learning_rate) #, weight_decay=1e-4)
 
-    metrics = {"train_loss": [], "validation_accuracy": [], "validation_loss": []}
+    # slow reduction of lr
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,50,70,80], gamma=0.1)
+
+    metrics = {"train_loss": [], "validation_auc": [], "validation_loss": []}
 
     for i_epoch in range(number_epochs):
 
@@ -54,13 +67,17 @@ def train_graph(model, dataset, number_epochs, description_model: str, folder_re
         model.train()
 
         for batch in loader:
-            graph, mask, segmentation_map, coordinate = batch
+            if UNIT_TEST['is_true']:
+                graph = batch
+            else:
+                graph, mask, segmentation_map, coordinate = batch
 
             batch = graph.to(device)
             label = graph.y.float()
             label = label[:, None]
 
             # ============forward===========
+
             prediction = model(batch)
             prediction_probability = sigmoid_function(prediction)
 
@@ -69,18 +86,21 @@ def train_graph(model, dataset, number_epochs, description_model: str, folder_re
             loss_average.add(loss.item())
 
             # ============backward===========
-            opt.zero_grad()
+            optimizer.zero_grad()
             loss.backward(retain_graph=True)
-            opt.step()
+            optimizer.step()
+            scheduler.step()
 
         is_validation_epoch = i_epoch % 2 == 0
 
         if is_validation_epoch:
             validation_accuracy, loss_validation = test_graph(test_loader, model)
             print(
-                "Epoch {}. Loss: {:.4f}. Test accuracy: {:.4f}".format(i_epoch, loss_average.mean, validation_accuracy))
+                "Epoch {}. Loss: {:.4f}. Test accuracy: {:.4f}. test loss {}".format(i_epoch, loss_average.mean,
+                                                                                     validation_accuracy,
+                                                                                     loss_validation))
             metrics["train_loss"].append(loss_average.mean)
-            metrics["validation_accuracy"].append(validation_accuracy)
+            metrics["validation_auc"].append(validation_accuracy)
             metrics["validation_loss"].append(loss_validation)
 
         if save_models:
@@ -109,31 +129,54 @@ def test_graph(loader, model) -> tuple:
 
     number_samples = len(loader)
 
-    for data in loader:
+    # TODO selection per auc, decide what we take
+    if not UNIT_TEST['is_true']:
+        image_prediction, mask, binary_prediction = predict_on_graph_dataset(model, loader)
+        precision, recall, thresholds = precision_recall_curve(mask, image_prediction)
+        auc = auc_scoring(recall, precision)
+        loss = criterion(torch.tensor(image_prediction), torch.tensor(mask))
+        loss_average.add(loss.item())
+        average_loss = loss_average.mean
 
-        graph, mask, segmentation_map, coordinate = data
+        return auc, average_loss
+
+    for data in loader:
+        if UNIT_TEST['is_true']:
+            graph = data
+        else:
+            graph, mask, segmentation_map, coordinate = data
+            segmentation_map = segmentation_map.flatten()
         graph = graph.to(device)
 
-        segmentation_map = segmentation_map.flatten()
-
         with torch.no_grad():
-            prediction = model.predict(graph)
+            graph_for_binary = graph.clone()
+            prediction = model(graph)
+            prediction_probability = sigmoid_function(prediction)
             if device.type == "cuda":
                 label = graph.y.float().cuda()
                 label = label[:, None]
             else:
                 label = graph.y.float()
                 label = label[:, None]
-        loss = criterion(prediction, label)
+        loss = criterion(prediction_probability, label)
 
         loss_average.add(loss.item())
+        prediction_binary = model.predict_to_binary(graph_for_binary)
+        if UNIT_TEST['is_true']:
+            prediction = fun.numpy_raster(prediction_binary)
+            label = fun.numpy_raster(label)
+            accuracy = accuracy_score(prediction, label, normalize=True)
+            total_accuracy += accuracy
 
-        prediction = prediction.flatten()
-        image_prediction = fun.graph_labels_to_image(fun.numpy_raster(prediction), fun.numpy_raster(segmentation_map))
-        image_prediction = image_prediction.flatten()
-        mask = mask.flatten()
-        accuracy = accuracy_score(image_prediction, mask, normalize=True)
-        total_accuracy += accuracy
+
+        else:
+            prediction = prediction_binary.flatten()
+            image_prediction = fun.graph_labels_to_image(fun.numpy_raster(prediction),
+                                                         fun.numpy_raster(segmentation_map))
+            image_prediction = image_prediction.flatten()
+            mask = mask.flatten()
+            accuracy = accuracy_score(image_prediction, mask, normalize=True)
+            total_accuracy += accuracy
 
     # total_number_nodes = fun.get_number_nodes(loader.dataset)
 
@@ -143,13 +186,26 @@ def test_graph(loader, model) -> tuple:
 
     return total_accuracy, average_loss
 
+def test_cnn(model:nn.Module, data_loader) -> float:
+    model.eval()
 
-def train_one_epoch(model, data_loader, validation=False):
+    prediction, y_data, binary_prediction = predict_on_dataset(model, data_loader)
+
+    precision, recall, thresholds = precision_recall_curve(y_data, prediction)
+    auc = auc_scoring(recall, precision)
+
+    loss_average = tnt.meter.AverageValueMeter()
+    loss = criterion(torch.tensor(prediction), torch.tensor(y_data))
+    loss_average.add(loss.item())
+    average_loss = loss_average.mean
+
+    return average_loss, auc
+
+def train_one_epoch(model, data_loader):
     model.train()
     model.to(device)
 
-    if validation:
-        model.eval()
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(model.optimizer, milestones=[30, 50, 70, 80], gamma=0.1)
 
     loss_average = tnt.meter.AverageValueMeter()
     accuracy_metric = 0.0
@@ -186,15 +242,15 @@ def train_one_epoch(model, data_loader, validation=False):
 
         loss_average.add(loss.item())
 
-        accuracy_metric += fun.get_accuracy(prediction_flattened, y_data, validation)
+        accuracy_metric += fun.get_accuracy(prediction_flattened, y_data)
 
         # ============backward===========
 
         model.optimizer.zero_grad()
         loss.backward(retain_graph=True)
 
-        if not validation:
-            model.optimizer.step()
+        model.optimizer.step()
+        scheduler.step()
 
         torch.cuda.empty_cache()
 
@@ -211,11 +267,11 @@ def train(model, dataset, number_epochs: int, description_model: str, results_fo
     train_data, validation_data = dataset_functions.split_dataset(dataset, test_size=0.8)
     train_loader = DataLoader(train_data, batch_size=32
                               , shuffle=True)
-    validation_loader = DataLoader(validation_data, batch_size=32, shuffle=True)
+    #validation_loader = DataLoader(validation_data, batch_size=32, shuffle=True)
 
     fun.show_characteristics_model(model)
 
-    losses = {"train_loss": [], "train_acuracy": [], "validation_loss": [], "validation_accuracy": []}
+    losses = {"train_loss": [], "train_acuracy": [], "validation_auc": [], "validation_loss": []}
 
     for i_epoch in range(number_epochs):
 
@@ -224,12 +280,13 @@ def train(model, dataset, number_epochs: int, description_model: str, results_fo
         is_validation_epoch = i_epoch % 2 == 0
 
         if is_validation_epoch:
-            loss_val, accu_val = train_one_epoch(model, validation_loader, validation=True)
+            #loss_val, accu_val = train_one_epoch(model, validation_loader, validation=True)
+            loss_val, auc_val = test_cnn(model, validation_data)
 
         losses["train_loss"].append(loss_train)
         losses["train_acuracy"].append(accuracy)
         losses["validation_loss"].append(loss_val)
-        losses["validation_accuracy"].append(accu_val)
+        losses["validation_auc"].append(auc_val)
 
         fun.display_training_metrics(i_epoch, loss_train, accuracy)
 
@@ -239,12 +296,12 @@ def train(model, dataset, number_epochs: int, description_model: str, results_fo
 
     if save_models:
         print("Saving best model")
-        fun.saving_best_model(model, folder_evaluation_models, losses, description_model, results_folder)
+        i_epoch_best = fun.saving_best_model(model, folder_evaluation_models, losses, description_model, results_folder)
 
         # cleaning the evaluation models saved every epoch
         fun.delete_files_from_folder(folder_evaluation_models)
 
-    file_plot = f"{results_folder}plot_model_{current_time}.png"
+    file_plot = f"{results_folder}plot_model_{current_time}_epoch.png"
     fun.visualisation_losses(losses, file_plot)
 
     model.eval()

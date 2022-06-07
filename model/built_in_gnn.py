@@ -26,10 +26,12 @@ class Gnn(torch.nn.Module):
         x = self.initial_layer(x=x, edge_index=edge_index)
         x = torch.tanh(x)
         x = F.dropout(x, training=self.training)
+
         x = self.layer1(x=x, edge_index=edge_index)
         x = torch.tanh(x)
-        x = self.layer2(x=x, edge_index=edge_index)
-        x = torch.tanh(x)
+
+        #x = self.layer2(x=x, edge_index=edge_index)
+        #x = torch.tanh(x)
         x = self.out(x)
 
         return x
