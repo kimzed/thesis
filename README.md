@@ -10,14 +10,13 @@ thesis
 ├── analysis_and_testing       # Various scripts for data analysis and initial model testing
 ├── dataset.py                 # Functions and scripts to handle the dataset for training and evaluation
 ├── dataset_graphs.py          # Dataset manipulation for graph neural networks
-├── dataset_pixel_graph.py     # Dataset scripts for pixel-wise graph analysis
 ├── evaluate.py                # Scripts for model evaluation and metrics computation
 ├── inference.py               # Model inference utilities
 ├── main.py                    # Main script for executing training, testing, and analysis workflows
-├── MNIST                      # MNIST related scripts, including custom GNNs and utilities
+├── MNIST                      # Proof of concept applied on the MNIST dataset
 ├── model                      # Contains various machine learning models used in the research
 ├── precision_recall_plot.py   # Script to plot precision-recall curve for model results
-├── pre_processing             # Pre-processing scripts and utilities
+├── pre_processing             # Data pre-processing scripts and utilities
 ├── train.py                   # Scripts to handle model training
 └── unit_test                  # Unit tests for various functionalities in the project
 ```
